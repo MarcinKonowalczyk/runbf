@@ -6,33 +6,30 @@
 OPTIND=1
 
 VERBOSE=0
-MODE="default"
+KEEP=0
+MODE="base"
 FILE=""
 
 help() {
-    echo "Usage: ${0##*/} [-h] [-v] [-m MODE] [-f FILE_HERE:FILE_THERE]"
+    echo "Usage: ${0##*/} [-h] [-v] [-k] [-m MODE] [-f FILE_HERE:FILE_THERE]"
     echo "Bootstrap into macos hyperv"
     echo "  -h  show this help text"
     echo "  -v  verbose mode"
-    echo "  -m  mode to run in (default, super, hyper). used internally. just leave it alone"
+    echo "  -k  if set, will keep the file on the host after running. default is to delete it"
+    echo "  -m  mode to run in (base, super, hyper). used internally. just leave it alone"
     echo "  -f  optionally a file to copy from the host to the container"
 }
 
-while getopts "hvf:m:" opt; do
+while getopts "hvkf:m:" opt; do
     case "$opt" in
     h)
         help
         exit 0
         ;;
-    v)
-        VERBOSE=1
-        ;;
-    m)
-        MODE=$OPTARG
-        ;;
-    f)
-        FILE=$OPTARG
-        ;;
+    v) VERBOSE=1 ;;
+    k) KEEP=1 ;;
+    m) MODE=$OPTARG ;;
+    f) FILE=$OPTARG ;;
     \?)
         echo "Invalid option: -$OPTARG" >&2
         help
@@ -50,53 +47,80 @@ shift $((OPTIND - 1))
 
 [ "${1:-}" = "--" ] && shift
 
-if [ "$VERBOSE" -eq 1 ]; then
-    echo "Verbose mode enabled"
-    echo "Mode: $mode"
-    echo "File: $file"
-fi
+[ "$VERBOSE" -eq 1 ] && V="-v"
+[ "$KEEP" -eq 1 ] && K="-k"
 
 INIT_NAME="init.sh"
 
-default() {
-    echo "default"
+base() {
     if [[ "$OSTYPE" != "darwin"* ]]; then
         echo "This script is only for macOS"
         exit 1
     fi
     # We're on macos. Launch a cont
     # Launch a container attached to the host vm
-    docker run --net=host --ipc=host --uts=host --pid=host --privileged \
-        --security-opt=seccomp=unconfined -it --rm \
-        -v /:/host \
-        -v $(realpath "$0"):/$INIT_NAME alpine:latest /bin/sh /$INIT_NAME -m super
+    [ "$VERBOSE" -eq 1 ] && echo "[base] launching donor container"
+
+    MOUNTS=""
+    MOUNTS="$MOUNTS -v /:/host"
+    MOUNTS="$MOUNTS -v $(realpath "$0"):/$INIT_NAME"
+    if [ -n "$FILE" ]; then
+        SRC=$(echo "$FILE" | cut -d: -f1)
+        SRC=$(realpath "$SRC")
+        DEST=$(basename "$SRC")
+        [ "$VERBOSE" -eq 1 ] && echo "[base] mounting $SRC to /$DEST in the donor container"
+        MOUNTS="$MOUNTS -v $SRC:/$DEST"
+    fi
+
+    FLAGS="--net=host --ipc=host --uts=host --pid=host --privileged --security-opt=seccomp=unconfined"
+    SUPER_ARGS="$V $K -m super -f $FILE"
+    docker run $FLAGS -it --rm \
+        $MOUNTS \
+        alpine:latest \
+        /bin/sh /$INIT_NAME $SUPER_ARGS
 }
 
 super() {
-    echo "super"
+    # copy self to the host
+    [ "$VERBOSE" -eq 1 ] && echo "[super] copying self to host"
     cp "$0" /host/
     chmod u+x /host/$(basename "$0")
+
+    # if a file was specified, copy it to the host
+    if [ -n "$FILE" ]; then
+        # split the file argument into source and destination
+        SRC=$(echo "$FILE" | cut -d: -f1)
+        SRC=/$(basename "$SRC")
+        DEST=$(echo "$FILE" | cut -d: -f2)
+        [ "$VERBOSE" -eq 1 ] && echo "[super] copying $SRC to /host/$DEST"
+        # copy the file to the host
+        # echo "Copying $SRC to /host/$DEST"
+        cp "$SRC" /host/"$DEST"
+    fi
     # chroot to /host and run the script
-    chroot /host "/$(basename "$0")" -m hyper
+    [ "$VERBOSE" -eq 1 ] && echo "[super] chrooting to host"
+    HYPER_ARGS="$V $K -m hyper -f $FILE"
+    chroot /host "/$(basename "$0")" $HYPER_ARGS
 }
 
 hyper() {
-    echo "hyper"
-    apt-get install -y fish htop jq 1>/dev/null 2>&1
-    fish
+    # install a couple of utility things and then launch into a shell
+    [ "$VERBOSE" -eq 1 ] && echo "[hyper] installing utilities"
+    apt-get install -y fish htop jq vim 1>/dev/null 2>&1
+    SHELL=$(which fish) EDITOR=$(which vim.basic) fish
+    if [ -n "$FILE" ] && [ "$KEEP" -eq 0 ]; then
+        DEST=$(echo "$FILE" | cut -d: -f2)
+        [ "$VERBOSE" -eq 1 ] && echo "[hyper] deleting /$DEST"
+        # delete the file from the host.
+        rm /"$DEST"
+    fi
 }
 
 # switch on the mode
 case $MODE in
-default)
-    default
-    ;;
-super)
-    super
-    ;;
-hyper)
-    hyper
-    ;;
+base) base ;;
+super) super ;;
+hyper) hyper ;;
 *)
     if [ "$MODE" == "--help" ] || [ "$MODE" == "-h" ]; then
         echo "script for bootstrapping into macos hyperv"
