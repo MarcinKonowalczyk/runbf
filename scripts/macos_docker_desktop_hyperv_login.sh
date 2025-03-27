@@ -101,7 +101,7 @@ super() {
         DEST=$(echo "$FILE" | cut -d: -f2)
         # make sure the destination directory exists
         [ "$VERBOSE" -eq 1 ] && echo "[super] copying $SRC to /host/$DEST"
-        mkdir -p /host"$(dirname "$DEST")"
+        mkdir -p /host/"$(dirname "$DEST")"
         # copy the file to the host
         # echo "Copying $SRC to /host/$DEST"
         cp "$SRC" /host/"$DEST"
