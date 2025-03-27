@@ -7,20 +7,22 @@ OPTIND=1
 
 VERBOSE=0
 KEEP=0
+INTERACTIVE=1
 MODE="base"
 FILE=""
 
 help() {
-    echo "Usage: ${0##*/} [-h] [-v] [-k] [-m MODE] [-f FILE_HERE:FILE_THERE]"
+    echo "Usage: ${0##*/} [-h] [-v] [-k] [-n] [-m MODE] [-f FILE_HERE:FILE_THERE]"
     echo "Bootstrap into macos hyperv"
     echo "  -h  show this help text"
     echo "  -v  verbose mode"
     echo "  -k  if set, will keep the file on the host after running. default is to delete it"
+    echo "  -n  non-interactive mode. will not launch a shell. default is to be interactive"
     echo "  -m  mode to run in (base, super, hyper). used internally. just leave it alone"
     echo "  -f  optionally a file to copy from the host to the container"
 }
 
-while getopts "hvkf:m:" opt; do
+while getopts "hvknf:m:" opt; do
     case "$opt" in
     h)
         help
@@ -28,6 +30,7 @@ while getopts "hvkf:m:" opt; do
         ;;
     v) VERBOSE=1 ;;
     k) KEEP=1 ;;
+    n) INTERACTIVE=0 ;;
     f) FILE=$OPTARG ;;
     m) MODE=$OPTARG ;;
     \?)
@@ -49,6 +52,7 @@ shift $((OPTIND - 1))
 
 [ "$VERBOSE" -eq 1 ] && V="-v"
 [ "$KEEP" -eq 1 ] && K="-k"
+[ "$INTERACTIVE" -eq 0 ] && N="-n"
 
 INIT_NAME="init.sh"
 
@@ -73,7 +77,7 @@ base() {
     fi
 
     FLAGS="--net=host --ipc=host --uts=host --pid=host --privileged --security-opt=seccomp=unconfined"
-    SUPER_ARGS="$V $K -m super"
+    SUPER_ARGS="$V $K $N -m super"
     if [ -n "$FILE" ]; then
         SUPER_ARGS="$SUPER_ARGS -f $FILE"
     fi
@@ -95,14 +99,16 @@ super() {
         SRC=$(echo "$FILE" | cut -d: -f1)
         SRC=/$(basename "$SRC")
         DEST=$(echo "$FILE" | cut -d: -f2)
+        # make sure the destination directory exists
         [ "$VERBOSE" -eq 1 ] && echo "[super] copying $SRC to /host/$DEST"
+        mkdir -p /host"$(dirname "$DEST")"
         # copy the file to the host
         # echo "Copying $SRC to /host/$DEST"
         cp "$SRC" /host/"$DEST"
     fi
     # chroot to /host and run the script
     [ "$VERBOSE" -eq 1 ] && echo "[super] chrooting to host"
-    HYPER_ARGS="$V $K -m hyper"
+    HYPER_ARGS="$V $K $N -m hyper"
     if [ -n "$FILE" ]; then
         HYPER_ARGS="$HYPER_ARGS -f $FILE"
     fi
@@ -111,9 +117,14 @@ super() {
 
 hyper() {
     # install a couple of utility things and then launch into a shell
-    [ "$VERBOSE" -eq 1 ] && echo "[hyper] installing utilities"
-    apt-get install -y fish htop jq vim 1>/dev/null 2>&1
-    SHELL=$(which fish) EDITOR=$(which vim.basic) fish
+    if [ $INTERACTIVE -eq 1 ]; then
+        [ "$VERBOSE" -eq 1 ] && echo "[hyper] installing utilities"
+        apt-get install -y fish htop jq vim 1>/dev/null 2>&1
+        SHELL=$(which fish) EDITOR=$(which vim.basic) fish
+    else
+        # non-interactive mode.
+        [ "$VERBOSE" -eq 1 ] && echo "[hyper] non-interactive mode"
+    fi
     if [ -n "$FILE" ] && [ "$KEEP" -eq 0 ]; then
         DEST=$(echo "$FILE" | cut -d: -f2)
         [ "$VERBOSE" -eq 1 ] && echo "[hyper] deleting /$DEST"
