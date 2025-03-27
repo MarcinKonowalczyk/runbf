@@ -28,8 +28,8 @@ while getopts "hvkf:m:" opt; do
         ;;
     v) VERBOSE=1 ;;
     k) KEEP=1 ;;
-    m) MODE=$OPTARG ;;
     f) FILE=$OPTARG ;;
+    m) MODE=$OPTARG ;;
     \?)
         echo "Invalid option: -$OPTARG" >&2
         help
@@ -73,7 +73,10 @@ base() {
     fi
 
     FLAGS="--net=host --ipc=host --uts=host --pid=host --privileged --security-opt=seccomp=unconfined"
-    SUPER_ARGS="$V $K -m super -f $FILE"
+    SUPER_ARGS="$V $K -m super"
+    if [ -n "$FILE" ]; then
+        SUPER_ARGS="$SUPER_ARGS -f $FILE"
+    fi
     docker run $FLAGS -it --rm \
         $MOUNTS \
         alpine:latest \
@@ -99,7 +102,10 @@ super() {
     fi
     # chroot to /host and run the script
     [ "$VERBOSE" -eq 1 ] && echo "[super] chrooting to host"
-    HYPER_ARGS="$V $K -m hyper -f $FILE"
+    HYPER_ARGS="$V $K -m hyper"
+    if [ -n "$FILE" ]; then
+        HYPER_ARGS="$HYPER_ARGS -f $FILE"
+    fi
     chroot /host "/$(basename "$0")" $HYPER_ARGS
 }
 
