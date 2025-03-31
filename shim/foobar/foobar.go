@@ -287,7 +287,7 @@ func (s *exampleTaskService) Create(ctx context.Context, r *taskAPI.CreateTaskRe
 
 	// cmd := exec.CommandContext(ctx, "sh", "-c",
 	// 	"while date --rfc-3339=seconds; do "+
-	// 		"sleep 1; "+
+	// 		"sleep 5; "+
 	// 		"done",
 	// )
 
@@ -321,6 +321,7 @@ func (s *exampleTaskService) Create(ctx context.Context, r *taskAPI.CreateTaskRe
 	// defer fw.Close()
 
 	cmd.Stdout = fw
+	cmd.WaitDelay = 100 * time.Millisecond
 
 	// Start the process (in a suspended state)
 	if err := cmd.Start(); err != nil {
@@ -334,11 +335,13 @@ func (s *exampleTaskService) Create(ctx context.Context, r *taskAPI.CreateTaskRe
 	ready_ch := make(chan struct{})
 	go func(ready_ch chan struct{}) {
 		ready_ch <- struct{}{}
+		log.G(ctx).Infof("init process started: %d", pid)
 		if err := cmd.Wait(); err != nil {
 			if _, ok := err.(*exec.ExitError); !ok {
 				log.G(ctx).WithError(err).Errorf("failed to wait for init process %d", pid)
 			}
 		}
+		log.G(ctx).Infof("init process exited: %d", pid)
 
 		// if err := pio.Close(); err != nil {
 		// 	log.G(ctx).WithError(err).Error("failed to close stdout pipe io")
@@ -357,10 +360,10 @@ func (s *exampleTaskService) Create(ctx context.Context, r *taskAPI.CreateTaskRe
 			log.G(ctx).Warn("init process wait returned without setting process state")
 		}
 
-		// log.G(ctx).Infof("grabbing the lock")
+		log.G(ctx).Infof("grabbing the lock")
 		s.m.Lock()
 		defer s.m.Unlock()
-		// log.G(ctx).Infof("grabbing the lock done")
+		log.G(ctx).Infof("grabbing the lock done")
 
 		proc, ok := s.procs[r.ID]
 		if !ok {
@@ -553,7 +556,6 @@ func (s *exampleTaskService) Resume(ctx context.Context, r *taskAPI.ResumeReques
 
 // Kill a process
 func (s *exampleTaskService) Kill(ctx context.Context, r *taskAPI.KillRequest) (*ptypes.Empty, error) {
-	log.G(ctx).Infof("kill id:%s execid:%s sig:%d", r.ID, r.ExecID, r.Signal)
 	already_exited, err := func() (bool, error) {
 		s.m.RLock()
 		defer s.m.RUnlock()
@@ -621,22 +623,22 @@ func (s *exampleTaskService) Kill(ctx context.Context, r *taskAPI.KillRequest) (
 
 	}
 	
-	// Check if all the tasks have exited
-	all_exited := func() bool {
-		s.m.RLock()
-		defer s.m.RUnlock()
-		for _, proc := range s.procs {
-			if !(proc.doneCtx.Err() != nil) {
-				return false
-			}
-		}
-		return true
-	}()
+	// // Check if all the tasks have exited
+	// all_exited := func() bool {
+	// 	s.m.RLock()
+	// 	defer s.m.RUnlock()
+	// 	for _, proc := range s.procs {
+	// 		if !(proc.doneCtx.Err() != nil) {
+	// 			return false
+	// 		}
+	// 	}
+	// 	return true
+	// }()
 
-	if all_exited {
-		log.G(ctx).Infof("all tasks exited. shutting down the shim")
-		s.ss.Shutdown()
-	}	
+	// if all_exited {
+	// 	log.G(ctx).Infof("all tasks exited. shutting down the shim")
+	// 	s.ss.Shutdown()
+	// }	
 
 	return &ptypes.Empty{}, nil
 }
