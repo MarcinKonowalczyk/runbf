@@ -1,4 +1,12 @@
-2025-03-27T18:02:32Z: args: [/foo/bar/shim --root /var/run/docker/runtime-runc/moby --log /var/run/desktop-containerd/daemon/io.containerd.runtime.v2.task/moby/5baad1ffe1c76ed534413ca62bfa890a30132067745353dcd89b0b7fece6956a/log.json --log-format json create --bundle /var/run/desktop-containerd/daemon/io.containerd.runtime.v2.task/moby/5baad1ffe1c76ed534413ca62bfa890a30132067745353dcd89b0b7fece6956a --pid-file /var/run/desktop-containerd/daemon/io.containerd.runtime.v2.task/moby/5baad1ffe1c76ed534413ca62bfa890a30132067745353dcd89b0b7fece6956a/init.pid --console-socket /tmp/pty3922922661/pty.sock 5baad1ffe1c76ed534413ca62bfa890a30132067745353dcd89b0b7fece6956a]
+2025-03-27T18:02:32Z: args: [/foo/bar/shim
+--root /var/run/docker/runtime-runc/moby
+--log /var/run/desktop-containerd/daemon/io.containerd.runtime.v2.task/moby/5baad1ffe1c76ed534413ca62bfa890a30132067745353dcd89b0b7fece6956a/log.json
+--log-format json
+create
+--bundle /var/run/desktop-containerd/daemon/io.containerd.runtime.v2.task/moby/5baad1ffe1c76ed534413ca62bfa890a30132067745353dcd89b0b7fece6956a
+--pid-file /var/run/desktop-containerd/daemon/io.containerd.runtime.v2.task/moby/5baad1ffe1c76ed534413ca62bfa890a30132067745353dcd89b0b7fece6956a/init.pid
+--console-socket /tmp/pty3922922661/pty.sock 5baad1ffe1c76ed534413ca62bfa890a30132067745353dcd89b0b7fece6956a
+]
 2025-03-27T18:02:32Z: env: PWD=/
 2025-03-27T18:02:32Z: env: GRPC_GO_LOG_SEVERITY_LEVEL=error
 2025-03-27T18:02:32Z: env: HOME=/
