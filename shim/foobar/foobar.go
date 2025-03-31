@@ -3,12 +3,12 @@ package foobar
 import (
 	"context"
 	"fmt"
+	"io"
 	std_io "io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"shim/io"
 	"strconv"
 	"sync"
 	"syscall"
@@ -23,6 +23,7 @@ import (
 	"github.com/containerd/containerd/v2/pkg/shutdown"
 	"github.com/containerd/containerd/v2/plugins"
 	"github.com/containerd/errdefs"
+	"github.com/containerd/fifo"
 	"github.com/containerd/log"
 	"google.golang.org/protobuf/types/known/anypb"
 
@@ -284,25 +285,44 @@ func (s *exampleTaskService) Create(ctx context.Context, r *taskAPI.CreateTaskRe
 		return nil, errdefs.ErrAlreadyExists
 	}
 
-	cmd := exec.CommandContext(ctx, "sh", "-c",
-		"while date --rfc-3339=seconds; do "+
-			"sleep 1; "+
-			"done",
-	)
+	// cmd := exec.CommandContext(ctx, "sh", "-c",
+	// 	"while date --rfc-3339=seconds; do "+
+	// 		"sleep 1; "+
+	// 		"done",
+	// )
 
-	pio, err := io.NewPipeIO(r.Stdout)
+	cmd := exec.CommandContext(ctx, "/bf/start-stopped.sh", "/bf/brainfuck", "-file", "/bf/hello.bf")
+
+	// pio, err := io.NewPipeIO(r.Stdout)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("creating pipe io for stdout %s: %w", r.Stdout, err)
+	// }
+
+	// go func() {
+	// 	if err := pio.Copy(ctx); err != nil {
+	// 		log.G(ctx).WithError(err).Warn("failed to copy from stdout pipe")
+	// 	}
+	// }()
+	
+	ok, err := fifo.IsFifo(r.Stdout)
 	if err != nil {
-		return nil, fmt.Errorf("creating pipe io for stdout %s: %w", r.Stdout, err)
+		return nil, fmt.Errorf("checking whether file %s is a fifo: %w", r.Stdout, err)
+	}
+	if !ok {
+		return nil, fmt.Errorf("file %s is not a fifo", r.Stdout)
 	}
 
-	go func() {
-		if err := pio.Copy(ctx); err != nil {
-			log.G(ctx).WithError(err).Warn("failed to copy from stdout pipe")
-		}
-	}()
-	
-	cmd.Stdout = pio.Writer()
+	var fw io.WriteCloser
+	// var fr io.Closer
 
+	if fw, err = fifo.OpenFifo(ctx, r.Stdout, syscall.O_WRONLY, 0); err != nil {
+		return nil, fmt.Errorf("opening write only fifo %s: %w", r.Stdout, err)
+	}
+	// defer fw.Close()
+
+	cmd.Stdout = fw
+
+	// Start the process (in a suspended state)
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("running init command: %w", err)
 	}
@@ -311,18 +331,18 @@ func (s *exampleTaskService) Create(ctx context.Context, r *taskAPI.CreateTaskRe
 
 	doneCtx, markDone := context.WithCancel(context.Background())
 
-	go func() {
-		defer markDone()
-	
+	ready_ch := make(chan struct{})
+	go func(ready_ch chan struct{}) {
+		ready_ch <- struct{}{}
 		if err := cmd.Wait(); err != nil {
 			if _, ok := err.(*exec.ExitError); !ok {
 				log.G(ctx).WithError(err).Errorf("failed to wait for init process %d", pid)
 			}
 		}
 
-		if err := pio.Close(); err != nil {
-			log.G(ctx).WithError(err).Error("failed to close stdout pipe io")
-		}
+		// if err := pio.Close(); err != nil {
+		// 	log.G(ctx).WithError(err).Error("failed to close stdout pipe io")
+		// }
 
 		exitStatus := 255
 
@@ -337,10 +357,10 @@ func (s *exampleTaskService) Create(ctx context.Context, r *taskAPI.CreateTaskRe
 			log.G(ctx).Warn("init process wait returned without setting process state")
 		}
 
-		log.G(ctx).Infof("grabbing the lock")
+		// log.G(ctx).Infof("grabbing the lock")
 		s.m.Lock()
 		defer s.m.Unlock()
-		log.G(ctx).Infof("grabbing the lock done")
+		// log.G(ctx).Infof("grabbing the lock done")
 
 		proc, ok := s.procs[r.ID]
 		if !ok {
@@ -349,7 +369,30 @@ func (s *exampleTaskService) Create(ctx context.Context, r *taskAPI.CreateTaskRe
 
 		proc.exitStatus = exitStatus
 		proc.exitTime = time.Now()
-	}()
+		markDone()
+
+		log.G(ctx).Infof("init process exited: %s", proc)
+
+		// // Check if all the tasks have exited
+		log.G(ctx).Infof("checking if all tasks have exited")
+		log.G(ctx).Infof("all tasks: %+v", s.procs)
+		all_exited := func() bool {
+			for _, proc := range s.procs {
+				if !(proc.doneCtx.Err() != nil) {
+					return false
+				}
+			}
+			return true
+		}()
+
+		if all_exited {
+			log.G(ctx).Infof("all tasks exited. shutting down the shim")
+			s.ss.Shutdown()
+		}
+		log.G(ctx).Infof("end of finalizer")
+	}(ready_ch)
+	
+	<-ready_ch
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -379,14 +422,17 @@ func (s *exampleTaskService) Create(ctx context.Context, r *taskAPI.CreateTaskRe
 func (s *exampleTaskService) Start(ctx context.Context, r *taskAPI.StartRequest) (*taskAPI.StartResponse, error) {
 	log.G(ctx).Infof("start id:%s execid:%s", r.ID, r.ExecID)
 
-	// we do not support starting a previously stopped task, and the init
-	// process was already started inside the Create RPC call, so we naively
-	// return its stored PID
 	s.m.RLock()
 	defer s.m.RUnlock()
 	proc, ok := s.procs[r.ID]
 	if !ok {
 		return nil, fmt.Errorf("task not created: %w", errdefs.ErrNotFound)
+	}
+	log.G(ctx).Infof("proc: %+v", proc)
+
+	cmd := exec.CommandContext(ctx, "kill", "-CONT", strconv.Itoa(proc.pid))
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("starting init command: %w", err)
 	}
 
 	return &taskAPI.StartResponse{
@@ -397,7 +443,59 @@ func (s *exampleTaskService) Start(ctx context.Context, r *taskAPI.StartRequest)
 // Delete a process or container
 func (s *exampleTaskService) Delete(ctx context.Context, r *taskAPI.DeleteRequest) (*taskAPI.DeleteResponse, error) {
 	log.G(ctx).Infof("delete id:%s execid:%s", r.ID, r.ExecID)
-	return nil, NewErrNotImplementedMsg("Delete (task)")
+
+	// return nil, NewErrNotImplementedMsg("Delete (task)")
+
+	s.m.Lock()
+	defer s.m.Unlock()
+
+	proc, ok := s.procs[r.ID]
+	if !ok {
+		return nil, fmt.Errorf("task not created: %w", errdefs.ErrNotFound)
+	}
+
+	if proc.doneCtx.Err() != nil {
+		log.G(ctx).Infof("task already exited: %s", r.ID)
+		delete(s.procs, r.ID)
+	}
+	return &taskAPI.DeleteResponse{}, nil
+
+	// // if proc.pid > 0 {
+	// // 	p, _ := os.FindProcess(proc.pid)
+	// // 	if err := p.Signal(syscall.Signal(0)); err == nil {
+	// // 		log.G(ctx).Infof("delete id:%s execid:%s pid:%d", r.ID, r.ExecID, proc.pid)
+	// // 		if err := p.Signal(syscall.SIGKILL); err != nil {
+	// // 			return nil, fmt.Errorf("sending SIGKILL to init process: %w", err)
+	// // 		}
+	// // 	}
+	// // }
+
+	// // // Wait for the process to exit
+	// // doneCtx, err := func() (context.Context, error) {
+	// // 	s.m.RLock()
+	// // 	defer s.m.RUnlock()
+	// // 	proc, ok := s.procs[r.ID]
+	// // 	if !ok {
+	// // 		return nil, fmt.Errorf("task not created: %w", errdefs.ErrNotFound)
+	// // 	}
+	// // 	return proc.doneCtx, nil
+	// // }()
+
+	// // if err != nil {
+	// // 	return nil, err
+	// // }
+
+	// // select {
+	// // case <-ctx.Done():
+	// // 	return nil, ctx.Err()
+	// // case <-doneCtx.Done():
+	// // }
+
+	// return &taskAPI.DeleteResponse{
+	// 	Pid:       uint32(proc.pid),
+	// 	ExitStatus: uint32(proc.exitStatus),
+	// 	ExitedAt:   protobuf.ToTimestamp(proc.exitTime),
+	// }, nil
 }
 
 // Exec an additional process inside the container
@@ -425,18 +523,20 @@ func (s *exampleTaskService) State(ctx context.Context, r *taskAPI.StateRequest)
 	}
 
 	status := tasktypes.Status_RUNNING
-	if !proc.exitTime.IsZero() {
+	if proc.doneCtx.Err() != nil {
 		status = tasktypes.Status_STOPPED
 	}
 
-	return &taskAPI.StateResponse{
+	resp := &taskAPI.StateResponse{
 		ID:         r.ID,
 		Pid:        uint32(proc.pid),
 		Status:     status,
 		Stdout:     proc.stdout,
 		ExitStatus: uint32(proc.exitStatus),
 		ExitedAt:   protobuf.ToTimestamp(proc.exitTime),
-	}, nil
+	}
+	log.G(ctx).Infof("state resp: %+v", resp)
+	return resp, nil
 }
 
 // Pause the container
@@ -454,19 +554,18 @@ func (s *exampleTaskService) Resume(ctx context.Context, r *taskAPI.ResumeReques
 // Kill a process
 func (s *exampleTaskService) Kill(ctx context.Context, r *taskAPI.KillRequest) (*ptypes.Empty, error) {
 	log.G(ctx).Infof("kill id:%s execid:%s sig:%d", r.ID, r.ExecID, r.Signal)
-	err := func() error {
+	already_exited, err := func() (bool, error) {
 		s.m.RLock()
 		defer s.m.RUnlock()
 
 		proc, ok := s.procs[r.ID]
 		if !ok {
-			return fmt.Errorf("task not created: %w", errdefs.ErrNotFound)
+			return false, fmt.Errorf("task not created: %w", errdefs.ErrNotFound)
 		}
 
 		// Check if the process is already done
 		if proc.doneCtx.Err() != nil {
-			log.G(ctx).Warnf("task already exited: %s", r.ID)
-			return nil
+			return true, nil
 		}
 
 		log.G(ctx).Infof("proc: %+v", proc)
@@ -481,46 +580,48 @@ func (s *exampleTaskService) Kill(ctx context.Context, r *taskAPI.KillRequest) (
 				// sig := syscall.Signal(r.Signal)
 				sig := syscall.Signal(9)
 				if err := p.Signal(sig); err != nil {
-					return fmt.Errorf("sending %s to init process: %w", sig, err)
+					return false, fmt.Errorf("sending %s to init process: %w", sig, err)
 				}
 			}
 		}
-		return nil
-
+		return false, nil
 	}()
 
 	if err != nil {
-		log.G(ctx).WithError(err).Errorf("failed to send kill syscall to init process %d", r.ID)
+		log.G(ctx).WithError(err).Errorf("failed to send kill syscall to init process %s", r.ID)
 		return nil, err
 	}
 
-	/////
+	if already_exited {
+		log.G(ctx).Warnf("task already exited: %s", r.ID)
+	} else {
 
-	grab_context := func(id string) (context.Context, error) {
-		s.m.RLock()
-		defer s.m.RUnlock()
-		proc, ok := s.procs[id]
-		if !ok {
-			return nil, fmt.Errorf("task not created: %w", errdefs.ErrNotFound)
+		grab_context := func(id string) (context.Context, error) {
+			s.m.RLock()
+			defer s.m.RUnlock()
+			proc, ok := s.procs[id]
+			if !ok {
+				return nil, fmt.Errorf("task not created: %w", errdefs.ErrNotFound)
+			}
+			return proc.doneCtx, nil
 		}
-		return proc.doneCtx, nil
-	}
 
-	doneCtx, err := grab_context(r.ID)
-	if err != nil {
-		return nil, err
+		doneCtx, err := grab_context(r.ID)
+		if err != nil {
+			return nil, err
+		}
+			
+		log.G(ctx).Infof("waiting for process to exit")
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-doneCtx.Done():
+		}
+		log.G(ctx).Infof("process exited")
+
 	}
-		
-	log.G(ctx).Infof("waiting for process to exit")
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-doneCtx.Done():
-	}
-	log.G(ctx).Infof("process exited")
 	
-	// log.G(ctx).Infof("proc: %+v", proc)
-
+	// Check if all the tasks have exited
 	all_exited := func() bool {
 		s.m.RLock()
 		defer s.m.RUnlock()

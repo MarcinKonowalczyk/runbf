@@ -58,7 +58,7 @@ func (pio *PipeIO) Copy(ctx context.Context) error {
 	}
 	defer fr.Close()
 
-	b := make([]byte, 4096)
+	b := make([]byte, 1024)
 	if _, err := io.CopyBuffer(fw, pio.p.r, b); err != nil {
 		return fmt.Errorf("copying pipe data to destination: %w", err)
 	}
