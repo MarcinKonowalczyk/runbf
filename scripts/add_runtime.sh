@@ -1,10 +1,4 @@
 #!/usr/bin/env sh
-# }
-#     "runtimes": {
-#         "foo": {
-#             "path": "/foo/bar/runc"
-#     }
-# }
 
 JQ=$(command -v jq)
 if [ -z "$JQ" ]; then
@@ -18,18 +12,9 @@ if [ ! -f "$DAEMON_CONFIG" ]; then
     exit 1
 fi
 
-RUNTIME_NAME="bf"
-RUNTIME_PATH="/usr/bin/containerd-shim-bf-v1"
+RUNTIME_NAME="brainfuck"
+RUNTIME_PATH="/usr/bin/containerd-shim-brainfuck-v1"
 
-# RUNTIME_NAME="$1"
-# RUNTIME_PATH="$2"
-# if [ -z "$RUNTIME_NAME" ] || [ -z "$RUNTIME_PATH" ]; then
-#     echo "Usage: $0 <runtime_name> <runtime_path>"
-#     exit 1
-# fi
-
-# Add the runtime to the daemon config
-
-JQ_SCRIPT=".runtimes += {\"$RUNTIME_NAME\": {\"path\": \"$RUNTIME_PATH\"}}"
+JQ_SCRIPT=".runtimes += {\"$RUNTIME_NAME\": {\"runtimeType\": \"$RUNTIME_PATH\"}}"
 jq "$JQ_SCRIPT" ~/.docker/daemon.json >/tmp/daemon.json
 cat /tmp/daemon.json >~/.docker/daemon.json
