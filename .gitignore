@@ -2,3 +2,4 @@ brainfuck
 containerd-shim-brainfuck-v1
 containerd-shim-brainfuck-v1-native
 containerd-shim-brainfuck-v1-arm64
+bf/programs/lost_kingdom.bf
