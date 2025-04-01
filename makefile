@@ -26,10 +26,12 @@ uninstall: ${BIN_NAME}-arm64
 	chmod +x ./scripts/macos_docker_desktop_hyperv_login.sh
 	./scripts/macos_docker_desktop_hyperv_login.sh -nvf ./${BIN_NAME}-arm64:/usr/bin/containerd-shim-brainfuck-v1
 
-docker:
+docker: Dockerfile
+	docker build --file=Dockerfile -t bf .
 	docker run --rm --runtime brainfuck --network none -t bf:latest
 
-clean:
+clean: uninstall
+	docker rmi -f bf:latest
 	rm -f ${BIN_NAME}-native
 	rm -f ${BIN_NAME}-arm64
 	
