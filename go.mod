@@ -1,4 +1,4 @@
-module runbf
+module github.com/MarcinKonowalczyk/runbf
 
 go 1.24.1
 

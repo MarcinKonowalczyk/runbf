@@ -8,8 +8,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"runbf/bf"
-	bf_shim "runbf/shim"
+	"github.com/MarcinKonowalczyk/runbf/bf"
+	bf_shim "github.com/MarcinKonowalczyk/runbf/shim"
 
 	"github.com/containerd/containerd/v2/pkg/shim"
 )

@@ -4,7 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"runbf/bf"
+
+	"github.com/MarcinKonowalczyk/runbf/bf"
 )
 
 var filename string
