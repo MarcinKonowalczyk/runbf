@@ -46,6 +46,15 @@ cat /tmp/daemon.json >~/.docker/daemon.json
 docker build --file=Dockerfile -t bf .
 docker run --rm --runtime brainfuck --network none -t bf:latest
 ``` 
+
+# dev
+
+You can read the containerd logs with:
+
+```sh
+tail -f ~/Library/Containers/com.docker.docker/Data/log/vm/containerd.log
+```
+
 # links
 
 - https://github.com/antoineco/containerd-shim-sample
