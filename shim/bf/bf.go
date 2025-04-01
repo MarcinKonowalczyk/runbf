@@ -67,7 +67,7 @@ func (m bfManager) Name() string {
 }
 
 func (m bfManager) Start(ctx context.Context, id string, opts shim.StartOpts) (retShim shim.BootstrapParams, retErr error) {
-	log.G(ctx).Debugf("Start (manager)")
+	log.G(ctx).Debug("Start (manager)")
 
 	self, err := os.Executable()
 	if err != nil {
@@ -152,7 +152,7 @@ func (m bfManager) Start(ctx context.Context, id string, opts shim.StartOpts) (r
 }
 
 func (m bfManager) Stop(ctx context.Context, id string) (shim.StopStatus, error) {
-	log.G(ctx).Debugf("Stop (manager)")
+	log.G(ctx).Debug("Stop (manager)")
 
 	pid, err := readPidFile(id)
 	if err != nil {
@@ -302,7 +302,7 @@ type process struct {
 	// Cwd string `json:"cwd"`
 }
 
-type Config struct {
+type config struct {
 	// RootPath is the path to the rootfs
 	Root root `json:"root"`
 	Process process `json:"process"`
@@ -310,7 +310,7 @@ type Config struct {
 
 // ReadOptions reads the option information from the path.
 // When the file does not exist, ReadOptions returns nil without an error.
-func ReadConfig(path string) (*Config, error) {
+func ReadConfig(path string) (*config, error) {
 	filePath := filepath.Join(path, configFilename)
 	if _, err := os.Stat(filePath); err != nil {
 		if os.IsNotExist(err) {
@@ -323,7 +323,7 @@ func ReadConfig(path string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	var config Config
+	var config config
 	if err := json.Unmarshal(data, &config); err != nil {
 		return nil, err
 	}
@@ -398,11 +398,7 @@ func finalize(
 	proc.exitTime = time.Now()
 	done()
 
-	log.G(ctx).Infof("init process exited: %s", proc)
-
-	// // Check if all the tasks have exited
-	log.G(ctx).Infof("checking if all tasks have exited")
-	log.G(ctx).Infof("all tasks: %+v", s.procs)
+	// Check if all the procs have exited
 	all_exited := func() bool {
 		for _, proc := range s.procs {
 			if !(proc.done.Err() != nil) {
@@ -413,7 +409,7 @@ func finalize(
 	}()
 
 	if all_exited {
-		log.G(ctx).Infof("all tasks exited. shutting down the shim")
+		log.G(ctx).Debug("all procs exited. shutting down the shim")
 		s.shutdown.Shutdown()
 	}
 }
@@ -479,6 +475,13 @@ func (s *bfTaskService) Create(ctx context.Context, r *taskAPI.CreateTaskRequest
 
 	cmd := exec.CommandContext(ctx, "/bin/sh", start_stopped_script_path, brainfuck_bin, "-file", script)
 
+	// DEBUG script to run a long running process
+	// cmd := exec.CommandContext(ctx, "sh", "-c",
+	// 	"while date --rfc-3339=seconds; do "+
+	// 		"sleep 5; "+
+	// 		"done",
+	// )
+
 	ok, err := fifo.IsFifo(r.Stdout)
 	if err != nil {
 		return nil, fmt.Errorf("checking whether file %s is a fifo: %w", r.Stdout, err)
@@ -530,7 +533,7 @@ func (s *bfTaskService) Create(ctx context.Context, r *taskAPI.CreateTaskRequest
 
 // Start the primary user process inside the container
 func (s *bfTaskService) Start(ctx context.Context, r *taskAPI.StartRequest) (*taskAPI.StartResponse, error) {
-	log.G(ctx).Infof("start id:%s execid:%s", r.ID, r.ExecID)
+	log.G(ctx).Debug("start (service)")
 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -538,7 +541,6 @@ func (s *bfTaskService) Start(ctx context.Context, r *taskAPI.StartRequest) (*ta
 	if !ok {
 		return nil, fmt.Errorf("task not created: %w", errdefs.ErrNotFound)
 	}
-	log.G(ctx).Infof("proc: %+v", proc)
 
 	cmd := exec.CommandContext(ctx, "kill", "-CONT", strconv.Itoa(proc.pid))
 	if err := cmd.Start(); err != nil {
@@ -552,7 +554,7 @@ func (s *bfTaskService) Start(ctx context.Context, r *taskAPI.StartRequest) (*ta
 
 // Delete a process or container
 func (s *bfTaskService) Delete(ctx context.Context, r *taskAPI.DeleteRequest) (*taskAPI.DeleteResponse, error) {
-	log.G(ctx).Infof("delete id:%s execid:%s", r.ID, r.ExecID)
+	log.G(ctx).Debug("delete (service)")
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -563,47 +565,16 @@ func (s *bfTaskService) Delete(ctx context.Context, r *taskAPI.DeleteRequest) (*
 	}
 
 	if proc.done.Err() != nil {
-		log.G(ctx).Infof("task already exited: %s", r.ID)
 		delete(s.procs, r.ID)
+	} else {
+		return nil, errdefs.ErrFailedPrecondition.WithMessage(fmt.Sprintf("init process %d is not done yet", proc.pid))
 	}
-	return &taskAPI.DeleteResponse{}, nil
 
-	// // if proc.pid > 0 {
-	// // 	p, _ := os.FindProcess(proc.pid)
-	// // 	if err := p.Signal(syscall.Signal(0)); err == nil {
-	// // 		log.G(ctx).Infof("delete id:%s execid:%s pid:%d", r.ID, r.ExecID, proc.pid)
-	// // 		if err := p.Signal(syscall.SIGKILL); err != nil {
-	// // 			return nil, fmt.Errorf("sending SIGKILL to init process: %w", err)
-	// // 		}
-	// // 	}
-	// // }
-
-	// // // Wait for the process to exit
-	// // done, err := func() (context.Context, error) {
-	// // 	s.m.RLock()
-	// // 	defer s.m.RUnlock()
-	// // 	proc, ok := s.procs[r.ID]
-	// // 	if !ok {
-	// // 		return nil, fmt.Errorf("task not created: %w", errdefs.ErrNotFound)
-	// // 	}
-	// // 	return proc.done, nil
-	// // }()
-
-	// // if err != nil {
-	// // 	return nil, err
-	// // }
-
-	// // select {
-	// // case <-ctx.Done():
-	// // 	return nil, ctx.Err()
-	// // case <-done.Done():
-	// // }
-
-	// return &taskAPI.DeleteResponse{
-	// 	Pid:       uint32(proc.pid),
-	// 	ExitStatus: uint32(proc.exitStatus),
-	// 	ExitedAt:   protobuf.ToTimestamp(proc.exitTime),
-	// }, nil
+	return &taskAPI.DeleteResponse{
+		Pid:       uint32(proc.pid),
+		ExitStatus: uint32(proc.exitStatus),
+		ExitedAt:   protobuf.ToTimestamp(proc.exitTime),
+	}, nil
 }
 
 // Exec an additional process inside the container
@@ -620,7 +591,7 @@ func (s *bfTaskService) ResizePty(ctx context.Context, r *taskAPI.ResizePtyReque
 
 // State returns runtime state of a process
 func (s *bfTaskService) State(ctx context.Context, r *taskAPI.StateRequest) (*taskAPI.StateResponse, error) {
-	log.G(ctx).Infof("state id:%s execid:%s", r.ID, r.ExecID)
+	log.G(ctx).Debug("state (service)")
 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -634,32 +605,32 @@ func (s *bfTaskService) State(ctx context.Context, r *taskAPI.StateRequest) (*ta
 		status = tasktypes.Status_STOPPED
 	}
 
-	resp := &taskAPI.StateResponse{
-		ID:         r.ID,
-		Pid:        uint32(proc.pid),
-		Status:     status,
+	return &taskAPI.StateResponse{
+	ID:         r.ID,
+	Pid:        uint32(proc.pid),
+	Status:     status,
 		Stdout:     proc.stdout,
 		ExitStatus: uint32(proc.exitStatus),
 		ExitedAt:   protobuf.ToTimestamp(proc.exitTime),
-	}
-	log.G(ctx).Infof("state resp: %+v", resp)
-	return resp, nil
+	}, nil
 }
 
 // Pause the container
 func (s *bfTaskService) Pause(ctx context.Context, r *taskAPI.PauseRequest) (*ptypes.Empty, error) {
-	log.G(ctx).Infof("pause id:%s", r.ID)
+	log.G(ctx).Debug("pause (service)")
 	return nil, errdefs.ErrNotImplemented.WithMessage("Pause (task)")
 }
 
 // Resume the container
 func (s *bfTaskService) Resume(ctx context.Context, r *taskAPI.ResumeRequest) (*ptypes.Empty, error) {
-	log.G(ctx).Infof("resume id:%s", r.ID)
+	log.G(ctx).Debug("resume (service)")
 	return nil, errdefs.ErrNotImplemented.WithMessage("Resume (task)")
 }
 
 // Kill a process
 func (s *bfTaskService) Kill(ctx context.Context, r *taskAPI.KillRequest) (*ptypes.Empty, error) {
+	log.G(ctx).Debug("kill (service)")
+
 	already_exited, err := func() (bool, error) {
 		s.mu.RLock()
 		defer s.mu.RUnlock()
@@ -674,14 +645,12 @@ func (s *bfTaskService) Kill(ctx context.Context, r *taskAPI.KillRequest) (*ptyp
 			return true, nil
 		}
 
-		log.G(ctx).Infof("proc: %+v", proc)
-
 		if proc.pid > 0 {
 			p, _ := os.FindProcess(proc.pid)
 			// The POSIX standard specifies that a null-signal can be sent to check
 			// whether a PID is valid.
 			if err := p.Signal(syscall.Signal(0)); err == nil {
-				log.G(ctx).Infof("kill id:%s execid:%s pid:%d sig:%d", r.ID, r.ExecID, proc.pid, r.Signal)
+				// log.G(ctx).Infof("kill id:%s execid:%s pid:%d sig:%d", r.ID, r.ExecID, proc.pid, r.Signal)
 				// TODO: use the signal from the request
 				// sig := syscall.Signal(r.Signal)
 				sig := syscall.Signal(9)
@@ -713,23 +682,6 @@ func (s *bfTaskService) Kill(ctx context.Context, r *taskAPI.KillRequest) (*ptyp
 		}
 	}
 	
-	// // Check if all the tasks have exited
-	// all_exited := func() bool {
-	// 	s.m.RLock()
-	// 	defer s.m.RUnlock()
-	// 	for _, proc := range s.procs {
-	// 		if !(proc.done.Err() != nil) {
-	// 			return false
-	// 		}
-	// 	}
-	// 	return true
-	// }()
-
-	// if all_exited {
-	// 	log.G(ctx).Infof("all tasks exited. shutting down the shim")
-	// 	s.ss.Shutdown()
-	// }	
-
 	return &ptypes.Empty{}, nil
 }
 
