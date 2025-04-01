@@ -5,7 +5,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"shim/foobar"
+	"shim/bf"
 
 	"github.com/containerd/containerd/v2/pkg/shim"
 )
@@ -14,5 +14,5 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	shim.Run(ctx, foobar.NewManager("io.containerd.foobar.v1"))
+	shim.Run(ctx, bf.NewManager("io.containerd.bf.v1"))
 }

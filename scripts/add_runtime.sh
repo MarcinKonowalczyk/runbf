@@ -18,8 +18,8 @@ if [ ! -f "$DAEMON_CONFIG" ]; then
     exit 1
 fi
 
-RUNTIME_NAME="foo"
-RUNTIME_PATH="/foo/bar/shim"
+RUNTIME_NAME="bf"
+RUNTIME_PATH="/usr/bin/containerd-shim-bf-v1"
 
 # RUNTIME_NAME="$1"
 # RUNTIME_PATH="$2"
