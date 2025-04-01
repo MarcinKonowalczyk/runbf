@@ -1,10 +1,10 @@
 package main
 
 import (
-	"brainfuck/bf"
 	"flag"
 	"fmt"
 	"os"
+	"runbf/bf"
 )
 
 var filename string

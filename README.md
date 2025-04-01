@@ -6,15 +6,18 @@ With great help from https://github.com/antoineco/containerd-shim-sample
 
 ...
 
-```
-GOOS=linux GOARCH=arm64 go build -C ./shim/ . && ./scripts/macos_docker_desktop_hyperv_login.sh -nkvf ./shim/shim:/foo/bar/containerd-shim-foobar-v1
-GOOS=linux GOARCH=arm64 go build -C ./brainfuck/ . && ./scripts/macos_docker_desktop_hyperv_login.sh -nkvf ./brainfuck/brainfuck:/bf/brainfuck
-./scripts/macos_docker_desktop_hyperv_login.sh -nkvf ./brainfuck/hello.bf:/bf/hello.bf
-./scripts/macos_docker_desktop_hyperv_login.sh -nkvf ./scripts/start-stopped.sh:/bf/start-stopped.sh
-```
+Buld shim and binary:
 
 ```
-docker run --rm --runtime io.containerd.skeleton.v1 --network none -t docker.io/library/hello-world:latest hello  
+GOOS=linux GOARCH=arm64 go build ./cmd/containerd-shim-brainfuck-v1.go && ./scripts/macos_docker_desktop_hyperv_login.sh -nkvf ./containerd-shim-brainfuck-v1:/usr/bin/containerd-shim-brainfuck-v1
+GOOS=linux GOARCH=arm64 go build ./bf/cmd/brainfuck.go && ./scripts/macos_docker_desktop_hyperv_login.sh -nkvf ./brainfuck:/usr/bin/brainfuck
+```
+
+Build dockerfile and run:
+
+```
+docker build --file=Dockerfile -t hello .
+docker run --rm --runtime brainfuck --network none -t hello:latest
 ```
 
 # links

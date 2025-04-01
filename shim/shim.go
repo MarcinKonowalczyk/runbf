@@ -1,4 +1,4 @@
-package bf
+package shim
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -297,7 +298,7 @@ type process struct {
 	// Args is the command to run
 	Args []string `json:"args"`
 	// Env is the environment variables to set
-	// Env []string `json:"env"`
+	Env []string `json:"env"`
 	// Cwd is the working directory
 	// Cwd string `json:"cwd"`
 }
@@ -308,13 +309,21 @@ type config struct {
 	Process process `json:"process"`
 }
 
+type Config struct {
+	Root string
+	Entrypoint string
+	Path []string
+}
+
+// /var/run/desktop-containerd/daemon/io.containerd.runtime.v2.task/moby/
+
 // ReadOptions reads the option information from the path.
 // When the file does not exist, ReadOptions returns nil without an error.
-func ReadConfig(path string) (*config, error) {
+func ReadConfig(path string) (*Config, error) {
 	filePath := filepath.Join(path, configFilename)
 	if _, err := os.Stat(filePath); err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil, fmt.Errorf("config file %s not found", configFilename)
 		}
 		return nil, err
 	}
@@ -332,9 +341,47 @@ func ReadConfig(path string) (*config, error) {
 		return nil, fmt.Errorf("root path not found in config file %s", configFilename)
 	}
 
-	return &config, nil
+	if len(config.Process.Args) != 1 {
+		return nil, fmt.Errorf("incorrect number of args in the CMD. Expected 1, got %d", len(config.Process.Args))
+	}
+
+	arg0 := config.Process.Args[0]
+	
+	// check if the extension is .bf
+	if !(filepath.Ext(arg0) == ".bf" || filepath.Ext(arg0) == ".brainfuck") {
+		return nil, fmt.Errorf("entry point (%s) is not a .bf file", arg0)
+	}
+
+	// check if the script exists
+	script := filepath.Join(config.Root.Path, arg0)
+	if _, err := os.Stat(script); err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("script %s does not exist: %w", arg0, err)
+		}
+		return nil, fmt.Errorf("checking script %s: %w", arg0, err)
+	}
+
+	// Get the PATH environment variable
+	split_path := []string{}
+	for _, env := range config.Process.Env {
+		if env[0:5] == "PATH=" {
+			// Split the PATH variable into a slice
+			path := env[5:]
+			split_path = strings.Split(path, ":")
+			break
+		}
+	}
+
+	return &Config{
+		Root: config.Root.Path,
+		Entrypoint: arg0,
+		Path: split_path,
+	}, nil
 }
 
+func (c *Config) FullPath() string {
+	return filepath.Join(c.Root, c.Entrypoint)
+}
 
 type finalizer struct {
 	done func()
@@ -414,7 +461,25 @@ func finalize(
 	}
 }
 
-const brainfuck_bin = "/bf/brainfuck"
+const brainfuck_bin = "brainfuck"
+
+func getBrainfuckBin(path []string) (string, error) {
+	found := ""
+	for _, dir := range path {
+		brainfuck_bin := filepath.Join(dir, brainfuck_bin)
+		if _, err := os.Stat(brainfuck_bin); err != nil {
+			continue
+		} else {
+			found = brainfuck_bin
+			break
+		}
+	}
+	if found == "" {
+		return "", fmt.Errorf("brainfuck_bin not found in PATH")
+	}
+
+	return found, nil
+}
 
 const start_stopped_script = `
 #!/bin/sh
@@ -437,43 +502,19 @@ func (s *bfTaskService) Create(ctx context.Context, r *taskAPI.CreateTaskRequest
 	if err != nil {
 		return nil, fmt.Errorf("reading config file: %w", err)
 	}
-	if config == nil {
-		return nil, fmt.Errorf("config file %s not found", configFilename)
-	}
-	if len(config.Process.Args) != 1 {
-		return nil, fmt.Errorf("incorrect number of args in the CMD. Expected 1, got %d", len(config.Process.Args))
-	}
-
-	arg0 := config.Process.Args[0]
-	script := config.Root.Path + arg0
-
-	// check if the extension is .bf
-	if !(filepath.Ext(arg0) == ".bf" || filepath.Ext(arg0) == ".brainfuck") {
-		return nil, fmt.Errorf("entry point (%s) is not a .bf file", arg0)
-	}
-
-	// check if the script exists
-	if _, err := os.Stat(script); err != nil {
-		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("script %s does not exist: %w", arg0, err)
-		}
-		return nil, fmt.Errorf("checking script %s: %w", arg0, err)
-	}
 
 	start_stopped_script_path := filepath.Join(r.Bundle, "start-stopped.sh")
 	if err := os.WriteFile(start_stopped_script_path, []byte(start_stopped_script), 0755); err != nil {
 		return nil, fmt.Errorf("writing start-stopped.sh: %w", err)
 	}
 
-	// check if brainfuck_bin exists
-	if _, err := os.Stat(brainfuck_bin); err != nil {
-		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("brainfuck_bin %s does not exist: %w", brainfuck_bin, err)
-		}
-		return nil, fmt.Errorf("checking brainfuck_bin %s: %w", brainfuck_bin, err)
+	brainfuck_bin, err := getBrainfuckBin(config.Path)
+	log.G(ctx).Debugf("brainfuck_bin: %s", brainfuck_bin)
+	if err != nil {
+		return nil, fmt.Errorf("getting brainfuck binary: %w", err)
 	}
 
-	cmd := exec.CommandContext(ctx, "/bin/sh", start_stopped_script_path, brainfuck_bin, "-file", script)
+	cmd := exec.CommandContext(ctx, "/bin/sh", start_stopped_script_path, brainfuck_bin, "-file", config.FullPath())
 
 	// DEBUG script to run a long running process
 	// cmd := exec.CommandContext(ctx, "sh", "-c",

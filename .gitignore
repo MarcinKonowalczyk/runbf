@@ -1,5 +1,2 @@
-myshim
-/shim/main
-/shim/*.log
-shim/shim
-brainfuck/brainfuck
+brainfuck
+containerd-shim-brainfuck-v1

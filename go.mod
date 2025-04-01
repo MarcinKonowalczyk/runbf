@@ -1,4 +1,4 @@
-module shim
+module runbf
 
 go 1.24.1
 
