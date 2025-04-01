@@ -1,3 +1,3 @@
 FROM scratch
-COPY brainfuck/hello.bf /
-CMD ["/hello.bf"]
+COPY bf/programs/factors.bf /
+CMD ["/factors.bf"]

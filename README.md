@@ -6,18 +6,18 @@ With great help from https://github.com/antoineco/containerd-shim-sample
 
 ...
 
-Buld shim and binary:
+Build shim:
 
 ```
-GOOS=linux GOARCH=arm64 go build ./cmd/containerd-shim-brainfuck-v1.go && ./scripts/macos_docker_desktop_hyperv_login.sh -nkvf ./containerd-shim-brainfuck-v1:/usr/bin/containerd-shim-brainfuck-v1
-GOOS=linux GOARCH=arm64 go build ./bf/cmd/brainfuck.go && ./scripts/macos_docker_desktop_hyperv_login.sh -nkvf ./brainfuck:/usr/bin/brainfuck
+GOOS=linux GOARCH=arm64 go build ./cmd/containerd-shim-brainfuck-v1.go && \
+./scripts/macos_docker_desktop_hyperv_login.sh -nkvf ./containerd-shim-brainfuck-v1:/usr/bin/containerd-shim-brainfuck-v1
 ```
 
 Build dockerfile and run:
 
 ```
-docker build --file=Dockerfile -t hello .
-docker run --rm --runtime brainfuck --network none -t hello:latest
+docker build --file=Dockerfile -t bf .
+docker run --rm --runtime brainfuck --network none -t bf:latest
 ```
 
 # links
@@ -27,7 +27,6 @@ docker run --rm --runtime brainfuck --network none -t hello:latest
 - https://stackoverflow.com/questions/39739560/how-to-access-the-vm-created-by-dockers-hyperkit
 - https://docs.docker.com/reference/cli/docker/container/run/
 - https://github.com/antoineco/containerd-shim-sample
-
 
 
 ## bf

@@ -1,32 +1,35 @@
-.PHONY: run install uninstall
+.PHONY: run install uninstall docker clean build hello
 
-all: run
+all: hello
 
-./shim/main: ./shim/main.go
-	go build -o ./shim/main ./shim/main.go
+SRC=./cmd/containerd-shim-brainfuck-v1.go
+BIN_NAME=containerd-shim-brainfuck-v1
 
-./shim/main-arm64: ./shim/main.go
-	GOOS=linux GOARCH=arm64 go build -o ./shim/main-arm64 ./shim/main.go
+${BIN_NAME}-native: ${SRC}
+	go build  -o ${BIN_NAME}-native ${SRC}
 
-run: ./shim/main
-	./shim/main
+${BIN_NAME}-arm64: ${SRC}
+	GOOS=linux GOARCH=arm64 go build -o ${BIN_NAME}-arm64 ${SRC}
 
+build: ${BIN_NAME}-native ${BIN_NAME}-arm64
 
-install: ./shim/main-arm64
+hello: ${BIN_NAME}-native
+	./${BIN_NAME}-native brainfuck -file ./bf/programs/hello.bf
+
+install: ${BIN_NAME}-arm64
 	chmod +x ./scripts/macos_docker_desktop_hyperv_login.sh
-	./scripts/macos_docker_desktop_hyperv_login.sh -nvk -f ./shim/main-arm64:foo/bar/shim
+	./scripts/macos_docker_desktop_hyperv_login.sh -nkvf ./${BIN_NAME}-arm64:/usr/bin/containerd-shim-brainfuck-v1
 
 # for now we hack the shim uninstall by tunnelling into the hypervisor without the -k flag so that the
 # shim is deleted after exit
-uninstall:
+uninstall: ${BIN_NAME}-arm64
 	chmod +x ./scripts/macos_docker_desktop_hyperv_login.sh
-	./scripts/macos_docker_desktop_hyperv_login.sh -nv -f ./shim/main-arm64:foo/bar/shim
+	./scripts/macos_docker_desktop_hyperv_login.sh -nvf ./${BIN_NAME}-arm64:/usr/bin/containerd-shim-brainfuck-v1
 
-shimmed-alpine:
-	docker run --runtime foo -it --rm alpine:latest
+docker:
+	docker run --rm --runtime brainfuck --network none -t bf:latest
 
 clean:
-	rm -f ./shim/main
-	rm -f ./shim/main-arm64
-	rm -f ./shim/shim.log
+	rm -f ${BIN_NAME}-native
+	rm -f ${BIN_NAME}-arm64
 	

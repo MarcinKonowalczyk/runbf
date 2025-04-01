@@ -461,26 +461,6 @@ func finalize(
 	}
 }
 
-const brainfuck_bin = "brainfuck"
-
-func getBrainfuckBin(path []string) (string, error) {
-	found := ""
-	for _, dir := range path {
-		brainfuck_bin := filepath.Join(dir, brainfuck_bin)
-		if _, err := os.Stat(brainfuck_bin); err != nil {
-			continue
-		} else {
-			found = brainfuck_bin
-			break
-		}
-	}
-	if found == "" {
-		return "", fmt.Errorf("brainfuck_bin not found in PATH")
-	}
-
-	return found, nil
-}
-
 const start_stopped_script = `
 #!/bin/sh
 kill -STOP $$
@@ -508,13 +488,12 @@ func (s *bfTaskService) Create(ctx context.Context, r *taskAPI.CreateTaskRequest
 		return nil, fmt.Errorf("writing start-stopped.sh: %w", err)
 	}
 
-	brainfuck_bin, err := getBrainfuckBin(config.Path)
-	log.G(ctx).Debugf("brainfuck_bin: %s", brainfuck_bin)
+	self, err := os.Executable()
 	if err != nil {
-		return nil, fmt.Errorf("getting brainfuck binary: %w", err)
+		return nil, fmt.Errorf("getting executable of current process: %w", err)
 	}
 
-	cmd := exec.CommandContext(ctx, "/bin/sh", start_stopped_script_path, brainfuck_bin, "-file", config.FullPath())
+	cmd := exec.CommandContext(ctx, "/bin/sh", start_stopped_script_path, self, "brainfuck", "-file", config.FullPath())
 
 	// DEBUG script to run a long running process
 	// cmd := exec.CommandContext(ctx, "sh", "-c",

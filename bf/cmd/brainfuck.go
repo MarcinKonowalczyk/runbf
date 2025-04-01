@@ -25,5 +25,5 @@ func main() {
 		panic(err)
 	}
 
-	bf.Run(string(input), os.Stdin, os.Stdout)
+	bf.Run(string(input))
 }

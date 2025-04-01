@@ -1,6 +1,7 @@
 package bf
 
 import (
+	"context"
 	"io"
 )
 
@@ -24,8 +25,13 @@ func NewInterpreter(program []Command, input io.Reader, output io.StringWriter) 
 	}
 }
 
-func (i *Interpreter) Run() {
+func (i *Interpreter) RunContext(ctx context.Context) {
 	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
 		c := i.program[i.program_ptr]
 		switch c {
 		case Increment:
@@ -106,4 +112,8 @@ func (i *Interpreter) Run() {
 			break
 		}
 	}
+}
+
+func (i *Interpreter) Run() {
+	i.RunContext(context.Background())
 }
