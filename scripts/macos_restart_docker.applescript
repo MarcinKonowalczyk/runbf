@@ -1,3 +1,4 @@
+#!/usr/bin/osascript
 -- Applescript to close and reopen Docker Desktop on macOS
 -- run with `osascript scripts/macos_restart_docker.applescript`
 

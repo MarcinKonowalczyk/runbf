@@ -9,6 +9,7 @@ With great help from https://github.com/antoineco/containerd-shim-sample
 ```
 GOOS=linux GOARCH=arm64 go build -C ./shim/ . && ./scripts/macos_docker_desktop_hyperv_login.sh -nkvf ./shim/shim:/foo/bar/containerd-shim-foobar-v1
 GOOS=linux GOARCH=arm64 go build -C ./brainfuck/ . && ./scripts/macos_docker_desktop_hyperv_login.sh -nkvf ./brainfuck/brainfuck:/bf/brainfuck
+./scripts/macos_docker_desktop_hyperv_login.sh -nkvf ./brainfuck/hello.bf:/bf/hello.bf
 ./scripts/macos_docker_desktop_hyperv_login.sh -nkvf ./scripts/start-stopped.sh:/bf/start-stopped.sh
 ```
 

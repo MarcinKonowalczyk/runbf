@@ -2,9 +2,9 @@ package foobar
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
-	std_io "io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,10 +14,13 @@ import (
 	"syscall"
 	"time"
 
+	// "github.com/Microsoft/hcsshim/cmd/containerd-shim-runhcs-v1/options"
+
 	taskAPI "github.com/containerd/containerd/api/runtime/task/v2"
 	apitypes "github.com/containerd/containerd/api/types"
 	tasktypes "github.com/containerd/containerd/api/types/task"
 	"github.com/containerd/containerd/protobuf"
+	"github.com/containerd/containerd/v2/core/snapshots"
 	ptypes "github.com/containerd/containerd/v2/pkg/protobuf/types"
 	"github.com/containerd/containerd/v2/pkg/shim"
 	"github.com/containerd/containerd/v2/pkg/shutdown"
@@ -26,6 +29,8 @@ import (
 	"github.com/containerd/fifo"
 	"github.com/containerd/log"
 	"google.golang.org/protobuf/types/known/anypb"
+
+	// _ "shim/snapshotter" // Register the snapshotter plugin
 
 	"github.com/containerd/plugin"
 	"github.com/containerd/plugin/registry"
@@ -43,17 +48,18 @@ func init() {
 		ID:   "task",
 		Requires: []plugin.Type{
 			// plugins.EventPlugin,
+			// plugins.SnapshotPlugin,
 			plugins.InternalPlugin,
 		},
 		InitFn: func(ic *plugin.InitContext) (interface{}, error) {
-			// pp, err := ic.GetByID(plugins.EventPlugin, "publisher")
-			// if err != nil {
-			// 	return nil, err
-			// } pp.(shim.Publisher)
 			ss, err := ic.GetByID(plugins.InternalPlugin, "shutdown")
 			if err != nil {
 				return nil, err
 			}
+			// sh, err := ic.GetByID(plugins.SnapshotPlugin, "native")
+			// if err != nil {
+			// 	return nil, err
+			// }
 			return newTaskService(ic.Context, ss.(shutdown.Service))
 		},
 	})
@@ -221,7 +227,7 @@ func readPidFile(path string) (int, error) {
 	return strconv.Atoi(string(data))
 }
 
-func (m manager) Info(ctx context.Context, optionsR std_io.Reader) (*apitypes.RuntimeInfo, error) {
+func (m manager) Info(ctx context.Context, optionsR io.Reader) (*apitypes.RuntimeInfo, error) {
 	info := &apitypes.RuntimeInfo{
 		Name: m.name,
 		Version: &apitypes.RuntimeVersion{
@@ -268,6 +274,7 @@ type exampleTaskService struct {
 	procs initProcByTaskID
 
 	ss shutdown.Service
+	sh snapshots.Snapshotter
 }
 
 // RegisterTTRPC allows TTRPC services to be registered with the underlying server
@@ -275,6 +282,52 @@ func (s *exampleTaskService) RegisterTTRPC(server *ttrpc.Server) error {
 	taskAPI.RegisterTaskService(server, s)
 	return nil
 }
+
+const configFilename = "config.json"
+
+type root struct {
+	// Path is the path to the rootfs
+	Path string `json:"path"`
+}
+
+type process struct {
+	// Args is the command to run
+	Args []string `json:"args"`
+	// Env is the environment variables to set
+	// Env []string `json:"env"`
+	// Cwd is the working directory
+	// Cwd string `json:"cwd"`
+}
+
+type Config struct {
+	// RootPath is the path to the rootfs
+	Root root `json:"root"`
+	Process process `json:"process"`
+}
+
+// ReadOptions reads the option information from the path.
+// When the file does not exist, ReadOptions returns nil without an error.
+func ReadConfig(path string) (*Config, error) {
+	filePath := filepath.Join(path, configFilename)
+	if _, err := os.Stat(filePath); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+	var config Config
+	if err := json.Unmarshal(data, &config); err != nil {
+		return nil, err
+	}
+	return &config, nil
+}
+
+const brainfuck_bin = "/bf/brainfuck"
 
 // Create a new container
 func (s *exampleTaskService) Create(ctx context.Context, r *taskAPI.CreateTaskRequest) (_ *taskAPI.CreateTaskResponse, retErr error) {
@@ -285,13 +338,47 @@ func (s *exampleTaskService) Create(ctx context.Context, r *taskAPI.CreateTaskRe
 		return nil, errdefs.ErrAlreadyExists
 	}
 
+	log.G(ctx).Infof("r: %v", r)
+	log.G(ctx).Infof("Checkpoint: %s", r.Checkpoint)
+	log.G(ctx).Infof("ParentCheckpoint: %s", r.ParentCheckpoint)
+
+	// Read '.root.path' from the config file
+	config, err := ReadConfig(r.Bundle)
+	if err != nil {
+		return nil, fmt.Errorf("reading config file: %w", err)
+	}
+	log.G(ctx).Infof("config: %+v", config)
+	
+
+	///////
+
+	start_stopped_script := `
+#!/bin/sh
+kill -STOP $$
+exec $@
+	`
+
+	start_stopped_script_path := filepath.Join(r.Bundle, "start-stopped.sh")
+	if err := os.WriteFile(start_stopped_script_path, []byte(start_stopped_script), 0755); err != nil {
+		return nil, fmt.Errorf("writing start-stopped.sh: %w", err)
+	}
+
+	///////
+
+	script := config.Root.Path + config.Process.Args[0]
+
+
+
+	///////
+
 	// cmd := exec.CommandContext(ctx, "sh", "-c",
 	// 	"while date --rfc-3339=seconds; do "+
 	// 		"sleep 5; "+
 	// 		"done",
 	// )
 
-	cmd := exec.CommandContext(ctx, "/bf/start-stopped.sh", "/bf/brainfuck", "-file", "/bf/hello.bf")
+	cmd := exec.CommandContext(ctx, "/bf/start-stopped.sh", brainfuck_bin, "-file", script)
+	// cmd := exec.CommandContext(ctx, "/bf/start-stopped.sh", "/bf/brainfuck", "-file", "/bf/hello.bf")
 
 	// pio, err := io.NewPipeIO(r.Stdout)
 	// if err != nil {
