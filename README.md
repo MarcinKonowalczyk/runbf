@@ -59,8 +59,10 @@ tail -f ~/Library/Containers/com.docker.docker/Data/log/vm/containerd.log
 
 ## docker
 
+- https://stackoverflow.com/a/76079767/2531987
 - https://github.com/antoineco/containerd-shim-sample
 - https://stackoverflow.com/questions/76383059/what-is-the-architecture-overview-of-docker-desktop-on-mac
+- https://github.com/containerd/rust-extensions/tree/main/crates/shim
 - https://docs.docker.com/desktop/troubleshoot-and-support/faqs/macfaqs/
 - https://stackoverflow.com/questions/39739560/how-to-access-the-vm-created-by-dockers-hyperkit
 - https://docs.docker.com/reference/cli/docker/container/run/
