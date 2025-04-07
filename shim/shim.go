@@ -398,7 +398,6 @@ func (fc *finalizer) schedule(ctx context.Context) {
 	<-ready_ch
 }
 
-
 func finalize(
 	ctx context.Context,
 	ready_ch chan struct{},
@@ -697,7 +696,7 @@ func (s *bfTaskService) State(ctx context.Context, r *taskAPI.StateRequest) (*ta
 		Pid:        uint32(proc.pid),
 		Status:     status,
 		Stdout:     proc.stdout,
-		Stdin: 	    proc.stdin,
+		Stdin:      proc.stdin,
 		ExitStatus: uint32(proc.exitStatus),
 		ExitedAt:   protobuf.ToTimestamp(proc.exitTime),
 	}, nil

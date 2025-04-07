@@ -31,7 +31,7 @@ func main() {
 	}
 }
 
-/////////////// 
+///////////////
 
 var filename string
 
@@ -55,11 +55,11 @@ func runBrainfuck(ctx context.Context, args []string) error {
 	if err := parseBrainfuckFlags(args); err != nil {
 		return err
 	}
-	
+
 	if filename == "" {
 		return fmt.Errorf("invalid argument: -file is required")
 	}
-	
+
 	source, err := os.ReadFile(filename)
 	if err != nil {
 		return err

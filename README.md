@@ -44,7 +44,7 @@ cat /tmp/daemon.json >~/.docker/daemon.json
 
 ```sh
 docker build --file=Dockerfile -t bf .
-docker run --rm --runtime brainfuck --network none -t bf:latest
+docker run --rm -it --runtime brainfuck --network none -t bf:latest
 ``` 
 
 # dev

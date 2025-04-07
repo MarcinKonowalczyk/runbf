@@ -7,7 +7,7 @@ import (
 )
 
 func RunContext(ctx context.Context, source string, input io.Reader, output io.StringWriter) {
-	source = pre_lex(source)
+	source = PreLex(source)
 	lexer := NewLexer(source)
 
 	commands := lexer.Lex()

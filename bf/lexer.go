@@ -1,7 +1,6 @@
 package bf
 
-
-func pre_lex(input string) string {
+func PreLex(input string) string {
 	var result []rune
 	for _, c := range input {
 		if c == '+' || c == '-' || c == '>' || c == '<' || c == '.' || c == ',' || c == '[' || c == ']' {
@@ -20,6 +19,7 @@ func NewLexer(input string) *Lexer {
 		chars: input,
 	}
 }
+
 type Command rune
 
 const (
@@ -33,6 +33,12 @@ const (
 	LoopEnd   Command = ']'
 	Ignore    Command = ' '
 )
+
+// make Command comparable
+
+func (c Command) Compare(other Command) bool {
+	return c == other
+}
 
 func parse(c rune) Command {
 	switch c {
@@ -89,4 +95,9 @@ func (l *Lexer) Lex() []Command {
 		}
 	}
 	return commands
+}
+
+func Lex(input string) []Command {
+	lexer := NewLexer(input)
+	return lexer.Lex()
 }
