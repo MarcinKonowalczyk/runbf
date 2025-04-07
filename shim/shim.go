@@ -37,6 +37,9 @@ import (
 const exitCodeSignal = 128
 const initPidFile = "bf.pid"
 
+// comptime override for debug flag
+// set with `-ldflags="-X 'github.com/MarcinKonowalczyk/runbf/shim.debug=true'"`
+var debug string
 
 func init() {
 	registry.Register(&plugin.Registration{
@@ -74,14 +77,14 @@ func (m bfManager) Start(ctx context.Context, id string, opts shim.StartOpts) (r
 	if err != nil {
 		return retShim, fmt.Errorf("getting executable of current process: %w", err)
 	}
-	
+
 	cwd, err := os.Getwd()
 	if err != nil {
 		return retShim, fmt.Errorf("getting current working directory: %w", err)
 	}
 
 	var args []string
-	if opts.Debug {
+	if opts.Debug || debug != "" {
 		args = append(args, "-debug")
 	}
 
@@ -107,7 +110,7 @@ func (m bfManager) Start(ctx context.Context, id string, opts shim.StartOpts) (r
 	if err != nil {
 		return retShim, fmt.Errorf("creating socket: %w", err)
 	}
-	
+
 	sockF, err := socket.File()
 	if err != nil {
 		return retShim, fmt.Errorf("getting shim socket file descriptor: %w", err)
@@ -144,7 +147,7 @@ func (m bfManager) Start(ctx context.Context, id string, opts shim.StartOpts) (r
 	}
 
 	retShim = shim.BootstrapParams{
-		Version: 2,
+		Version:  2,
 		Address:  sockAddr,
 		Protocol: "ttrpc",
 	}
@@ -172,8 +175,8 @@ func (m bfManager) Stop(ctx context.Context, id string) (shim.StopStatus, error)
 	}
 
 	return shim.StopStatus{
-		Pid: pid,
-		ExitedAt: time.Now(),
+		Pid:        pid,
+		ExitedAt:   time.Now(),
 		ExitStatus: int(exitCodeSignal + syscall.SIGKILL),
 	}, nil
 }
@@ -218,13 +221,12 @@ func writePidFile(id string, pid int) error {
 	return nil
 }
 
-
 func (m bfManager) Info(ctx context.Context, optionsR io.Reader) (*apitypes.RuntimeInfo, error) {
 	log.G(ctx).Debug("Info (manager)")
 	info := &apitypes.RuntimeInfo{
 		Name: m.name,
 		Version: &apitypes.RuntimeVersion{
-			Version: "v1.1.0",
+			Version: "v1.2.0",
 		},
 	}
 	return info, nil
@@ -237,11 +239,12 @@ var (
 type proc struct {
 	pid int
 
-	done    context.Context
+	done       context.Context
 	exitTime   time.Time
 	exitStatus int
 
 	stdout string
+	stdin  string
 }
 
 func (pid *proc) String() string {
@@ -252,16 +255,15 @@ func (pid *proc) String() string {
 	}
 }
 
-
 type bfTaskService struct {
-	mu sync.RWMutex
-	procs map[string]*proc
+	mu       sync.RWMutex
+	procs    map[string]*proc
 	shutdown shutdown.Service
 }
 
 func newTaskService(ctx context.Context, sd shutdown.Service) (taskAPI.TaskService, error) {
 	return &bfTaskService{
-		procs: make(map[string]*proc, 1),
+		procs:    make(map[string]*proc, 1),
 		shutdown: sd,
 	}, nil
 }
@@ -286,7 +288,6 @@ func (s *bfTaskService) grab_context(id string) (context.Context, error) {
 	return proc.done, nil
 }
 
-
 const configFilename = "config.json"
 
 type root struct {
@@ -305,14 +306,14 @@ type process struct {
 
 type config struct {
 	// RootPath is the path to the rootfs
-	Root root `json:"root"`
+	Root    root    `json:"root"`
 	Process process `json:"process"`
 }
 
 type Config struct {
-	Root string
+	Root       string
 	Entrypoint string
-	Path []string
+	Path       []string
 }
 
 // /var/run/desktop-containerd/daemon/io.containerd.runtime.v2.task/moby/
@@ -346,7 +347,7 @@ func ReadConfig(path string) (*Config, error) {
 	}
 
 	arg0 := config.Process.Args[0]
-	
+
 	// check if the extension is .bf
 	if !(filepath.Ext(arg0) == ".bf" || filepath.Ext(arg0) == ".brainfuck") {
 		return nil, fmt.Errorf("entry point (%s) is not a .bf file", arg0)
@@ -373,9 +374,9 @@ func ReadConfig(path string) (*Config, error) {
 	}
 
 	return &Config{
-		Root: config.Root.Path,
+		Root:       config.Root.Path,
 		Entrypoint: arg0,
-		Path: split_path,
+		Path:       split_path,
 	}, nil
 }
 
@@ -385,18 +386,18 @@ func (c *Config) FullPath() string {
 
 type finalizer struct {
 	done func()
-	cmd      *exec.Cmd
-	pid      int
-	fw       io.WriteCloser
-	s        *bfTaskService
-	id 	 string
+	cmd  *exec.Cmd
+	pid  int
+	s    *bfTaskService
+	id   string
 }
 
 func (fc *finalizer) schedule(ctx context.Context) {
 	ready_ch := make(chan struct{})
-	go finalize(ctx, ready_ch, fc.done, fc.cmd, fc.pid, fc.fw, fc.s, fc.id)
+	go finalize(ctx, ready_ch, fc.done, fc.cmd, fc.pid, fc.s, fc.id)
 	<-ready_ch
 }
+
 
 func finalize(
 	ctx context.Context,
@@ -404,21 +405,18 @@ func finalize(
 	done func(),
 	cmd *exec.Cmd,
 	pid int,
-	fw io.WriteCloser,
 	s *bfTaskService,
 	id string,
 ) {
 	ready_ch <- struct{}{}
 
+	log.G(ctx).Debug("finalizer (service)")
 	if err := cmd.Wait(); err != nil {
 		if _, ok := err.(*exec.ExitError); !ok {
 			log.G(ctx).WithError(err).Errorf("failed to wait for init process %d", pid)
 		}
 	}
-	
-	if err := fw.Close(); err != nil {
-		log.G(ctx).WithError(err).Error("failed to close stdout pipe io")
-	}
+	log.G(ctx).Debugf("init process %d exited", pid)
 
 	exitStatus := 255
 
@@ -502,6 +500,7 @@ func (s *bfTaskService) Create(ctx context.Context, r *taskAPI.CreateTaskRequest
 	// 		"done",
 	// )
 
+	// STDOUT
 	ok, err := fifo.IsFifo(r.Stdout)
 	if err != nil {
 		return nil, fmt.Errorf("checking whether file %s is a fifo: %w", r.Stdout, err)
@@ -515,7 +514,44 @@ func (s *bfTaskService) Create(ctx context.Context, r *taskAPI.CreateTaskRequest
 		return nil, fmt.Errorf("opening write only fifo %s: %w", r.Stdout, err)
 	}
 
-	cmd.Stdout = fw
+	stdout_pipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("getting stdout pipe: %w", err)
+	}
+
+	// Connect the stdout pipe to the fifo
+	go func() {
+		if _, err := io.Copy(fw, stdout_pipe); err != nil {
+			log.G(ctx).WithError(err).Errorf("failed to copy stdout pipe to fifo %s", r.Stdout)
+		}
+	}()
+
+	// STDIN
+
+	ok, err = fifo.IsFifo(r.Stdin)
+	if err != nil {
+		return nil, fmt.Errorf("checking whether file %s is a fifo: %w", r.Stdin, err)
+	}
+	if !ok {
+		return nil, fmt.Errorf("file %s is not a fifo", r.Stdin)
+	}
+	var fr io.ReadCloser
+	if fr, err = fifo.OpenFifo(ctx, r.Stdin, syscall.O_RDONLY, 0); err != nil {
+		return nil, fmt.Errorf("opening read only fifo %s: %w", r.Stdin, err)
+	}
+
+	stdin_pipe, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, fmt.Errorf("getting stdin pipe: %w", err)
+	}
+
+	// Connect the stdin pipe to the fifo
+	go func() {
+		if _, err := io.Copy(stdin_pipe, fr); err != nil {
+			log.G(ctx).WithError(err).Errorf("failed to copy fifo %s to stdin pipe", r.Stdin)
+		}
+	}()
+
 	cmd.WaitDelay = command_wait_delay
 
 	// Start the process (in a suspended state)
@@ -531,7 +567,6 @@ func (s *bfTaskService) Create(ctx context.Context, r *taskAPI.CreateTaskRequest
 		done: mark_done,
 		cmd:  cmd,
 		pid:  pid,
-		fw:   fw,
 		s:    s,
 		id:   r.ID,
 	}
@@ -544,11 +579,12 @@ func (s *bfTaskService) Create(ctx context.Context, r *taskAPI.CreateTaskRequest
 		pid:    pid,
 		done:   doneCtx,
 		stdout: r.Stdout,
+		stdin:  r.Stdin,
 	}
 
 	return &taskAPI.CreateTaskResponse{
-		Pid:     uint32(pid),
-	},  nil
+		Pid: uint32(pid),
+	}, nil
 }
 
 // Start the primary user process inside the container
@@ -591,7 +627,7 @@ func (s *bfTaskService) Delete(ctx context.Context, r *taskAPI.DeleteRequest) (*
 	}
 
 	return &taskAPI.DeleteResponse{
-		Pid:       uint32(proc.pid),
+		Pid:        uint32(proc.pid),
 		ExitStatus: uint32(proc.exitStatus),
 		ExitedAt:   protobuf.ToTimestamp(proc.exitTime),
 	}, nil
@@ -626,9 +662,9 @@ func (s *bfTaskService) State(ctx context.Context, r *taskAPI.StateRequest) (*ta
 	}
 
 	return &taskAPI.StateResponse{
-	ID:         r.ID,
-	Pid:        uint32(proc.pid),
-	Status:     status,
+		ID:         r.ID,
+		Pid:        uint32(proc.pid),
+		Status:     status,
 		Stdout:     proc.stdout,
 		ExitStatus: uint32(proc.exitStatus),
 		ExitedAt:   protobuf.ToTimestamp(proc.exitTime),
@@ -666,11 +702,12 @@ func (s *bfTaskService) Kill(ctx context.Context, r *taskAPI.KillRequest) (*ptyp
 		}
 
 		if proc.pid > 0 {
-			p, _ := os.FindProcess(proc.pid)
+			p, err := os.FindProcess(proc.pid)
+			log.G(ctx).Debugf("kill id:%s execid:%s pid:%d sig:%d err:%v", r.ID, r.ExecID, proc.pid, r.Signal, err)
 			// The POSIX standard specifies that a null-signal can be sent to check
 			// whether a PID is valid.
 			if err := p.Signal(syscall.Signal(0)); err == nil {
-				// log.G(ctx).Infof("kill id:%s execid:%s pid:%d sig:%d", r.ID, r.ExecID, proc.pid, r.Signal)
+				// log.G(ctx).Debugf("kill id:%s execid:%s pid:%d sig:%d", r.ID, r.ExecID, proc.pid, r.Signal)
 				// TODO: use the signal from the request
 				// sig := syscall.Signal(r.Signal)
 				sig := syscall.Signal(9)
@@ -694,14 +731,14 @@ func (s *bfTaskService) Kill(ctx context.Context, r *taskAPI.KillRequest) (*ptyp
 		if err != nil {
 			return nil, err
 		}
-			
+
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-done.Done():
 		}
 	}
-	
+
 	return &ptypes.Empty{}, nil
 }
 
@@ -733,7 +770,7 @@ func (s *bfTaskService) Connect(ctx context.Context, r *taskAPI.ConnectRequest) 
 	if !ok {
 		return nil, fmt.Errorf("task not created: %w", errdefs.ErrNotFound)
 	}
-	
+
 	return &taskAPI.ConnectResponse{
 		ShimPid: uint32(os.Getpid()),
 		TaskPid: uint32(proc.pid),
@@ -743,7 +780,7 @@ func (s *bfTaskService) Connect(ctx context.Context, r *taskAPI.ConnectRequest) 
 // Shutdown is called after the underlying resources of the shim are cleaned up and the service can be stopped
 func (s *bfTaskService) Shutdown(ctx context.Context, r *taskAPI.ShutdownRequest) (*ptypes.Empty, error) {
 	log.G(ctx).Debug("shutdown (service)")
-	
+
 	s.shutdown.Shutdown()
 	return &ptypes.Empty{}, nil
 }
@@ -768,7 +805,7 @@ func (s *bfTaskService) Update(ctx context.Context, r *taskAPI.UpdateTaskRequest
 // Wait for a process to exit
 func (s *bfTaskService) Wait(ctx context.Context, r *taskAPI.WaitRequest) (*taskAPI.WaitResponse, error) {
 	log.G(ctx).Debug("wait (service)")
-	
+
 	done, err := s.grab_context(r.ID)
 	if err != nil {
 		return nil, err
@@ -792,4 +829,3 @@ func (s *bfTaskService) Wait(ctx context.Context, r *taskAPI.WaitRequest) (*task
 		ExitedAt:   protobuf.ToTimestamp(proc.exitTime),
 	}, nil
 }
-	

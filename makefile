@@ -5,11 +5,13 @@ all: hello
 SRC=./cmd/containerd-shim-brainfuck-v1.go
 BIN_NAME=containerd-shim-brainfuck-v1
 
-${BIN_NAME}-native: ${SRC}
+${BIN_NAME}-native: ${SRC} ./shim/shim.go
 	go build  -o ${BIN_NAME}-native ${SRC}
 
-${BIN_NAME}-arm64: ${SRC}
-	GOOS=linux GOARCH=arm64 go build -o ${BIN_NAME}-arm64 ${SRC}
+${BIN_NAME}-arm64: ${SRC} ./shim/shim.go
+	GOOS=linux GOARCH=arm64 go build \
+		-ldflags="-X 'github.com/MarcinKonowalczyk/runbf/shim.debug=true'" \
+		-o ${BIN_NAME}-arm64 ${SRC}
 
 build: ${BIN_NAME}-native ${BIN_NAME}-arm64
 
