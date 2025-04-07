@@ -12,7 +12,7 @@ func RunContext(ctx context.Context, source string, input io.Reader, output io.S
 
 	commands := lexer.Lex()
 
-	interpreter := NewInterpreter(commands, input, output)
+	interpreter := NewInterpreter(commands, input, output, false)
 	interpreter.RunContext(ctx)
 }
 

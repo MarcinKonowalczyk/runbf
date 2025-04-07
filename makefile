@@ -8,6 +8,7 @@ BIN_NAME=containerd-shim-brainfuck-v1
 ${BIN_NAME}-native: ${SRC} ./shim/shim.go
 	go build  -o ${BIN_NAME}-native ${SRC}
 
+# -ldflags="-X 'github.com/MarcinKonowalczyk/runbf/bf.debug=true'"
 ${BIN_NAME}-arm64: ${SRC} ./shim/shim.go
 	GOOS=linux GOARCH=arm64 go build \
 		-ldflags="-X 'github.com/MarcinKonowalczyk/runbf/shim.debug=true'" \

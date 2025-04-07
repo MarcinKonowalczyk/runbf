@@ -2,8 +2,14 @@ package bf
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"os"
 )
+
+// comptime override for debug flag
+// set with `-ldflags="-X 'github.com/MarcinKonowalczyk/runbf/bf.debug=true'"`
+var debug string
 
 type Interpreter struct {
 	program []Command
@@ -12,9 +18,10 @@ type Interpreter struct {
 	mem_ptr uint32
 	input  io.Reader
 	output io.StringWriter
+	debug bool
 }
 
-func NewInterpreter(program []Command, input io.Reader, output io.StringWriter) *Interpreter {
+func NewInterpreter(program []Command, input io.Reader, output io.StringWriter, debug bool) *Interpreter {
 	return &Interpreter{
 		program: program,
 		program_ptr: 0,
@@ -22,9 +29,18 @@ func NewInterpreter(program []Command, input io.Reader, output io.StringWriter) 
 		mem_ptr: 0,
 		input:   input,
 		output:  output,
+		debug:   debug,
 	}
 }
 
+// Write a debug message to stderr if debug is enabled
+func logf(format string, args ...interface{}) {
+	if debug != "" {
+		fmt.Fprintf(os.Stderr, format, args...)
+	}
+}
+
+// Run the program in a loop until it finishes or an error occurs
 func (i *Interpreter) RunContext(ctx context.Context) {
 	for {
 		select {
@@ -50,20 +66,27 @@ func (i *Interpreter) RunContext(ctx context.Context) {
 				i.mem_ptr--
 			}
 		case Output:
-			i.output.WriteString(string(i.mem[i.mem_ptr]))
+			to_write := i.mem[i.mem_ptr]
+			if to_write == '\n' {
+				// Patch for Windows and, from some reason, docker
+				i.output.WriteString("\r\n")
+			} else {
+				i.output.WriteString(string(to_write))
+			}
 		case Input:
+			// read a byte from stdin
 			buff := make([]byte, 1)
-			b, err := i.input.Read(buff)
+			_, err := i.input.Read(buff)
 			if err != nil {
+				if err == io.EOF {
+					logf("EOF")
+					return
+				}
+				logf("Error reading input: %v", err)
 				panic(err)
 			}
-			if b == 0 {
-				i.mem[i.mem_ptr] = 0
-			} else if b == 1 {
-				i.mem[i.mem_ptr] = buff[0]
-			} else {
-				panic("Input buffer is too large")
-			}
+			i.mem[i.mem_ptr] = buff[0]
+
 		case LoopStart:
 			v := i.mem[i.mem_ptr]
 			if v == 0 {

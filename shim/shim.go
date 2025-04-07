@@ -552,6 +552,37 @@ func (s *bfTaskService) Create(ctx context.Context, r *taskAPI.CreateTaskRequest
 		}
 	}()
 
+	// STDERR
+	stderr := r.Stderr
+	if stderr == "" {
+		stderr = r.Stdout
+	}
+
+	ok, err = fifo.IsFifo(stderr)
+	if err != nil {
+		return nil, fmt.Errorf("checking whether file %s is a fifo: %w", stderr, err)
+	}
+	if !ok {
+		return nil, fmt.Errorf("file %s is not a fifo", stderr)
+	}
+
+	stderr_pipe, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, fmt.Errorf("getting stderr pipe: %w", err)
+	}
+
+	var fe io.WriteCloser
+	if fe, err = fifo.OpenFifo(ctx, stderr, syscall.O_WRONLY, 0); err != nil {
+		return nil, fmt.Errorf("opening read only fifo %s: %w", stderr, err)
+	}
+
+	// Connect the stderr pipe to the fifo
+	go func() {
+		if _, err := io.Copy(fe, stderr_pipe); err != nil {
+			log.G(ctx).WithError(err).Errorf("failed to copy stderr pipe to fifo %s", stderr)
+		}
+	}()
+
 	cmd.WaitDelay = command_wait_delay
 
 	// Start the process (in a suspended state)
@@ -666,6 +697,7 @@ func (s *bfTaskService) State(ctx context.Context, r *taskAPI.StateRequest) (*ta
 		Pid:        uint32(proc.pid),
 		Status:     status,
 		Stdout:     proc.stdout,
+		Stdin: 	    proc.stdin,
 		ExitStatus: uint32(proc.exitStatus),
 		ExitedAt:   protobuf.ToTimestamp(proc.exitTime),
 	}, nil
