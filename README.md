@@ -62,6 +62,7 @@ tail -f ~/Library/Containers/com.docker.docker/Data/log/vm/containerd.log
 - https://stackoverflow.com/a/76079767/2531987
 - https://github.com/antoineco/containerd-shim-sample
 - https://stackoverflow.com/questions/76383059/what-is-the-architecture-overview-of-docker-desktop-on-mac
+- https://container42.com/2022/01/10/shim-shiminey-shim-shiminey/
 - https://github.com/containerd/rust-extensions/tree/main/crates/shim
 - https://docs.docker.com/desktop/troubleshoot-and-support/faqs/macfaqs/
 - https://stackoverflow.com/questions/39739560/how-to-access-the-vm-created-by-dockers-hyperkit
@@ -75,3 +76,11 @@ tail -f ~/Library/Containers/com.docker.docker/Data/log/vm/containerd.log
 - https://esolangs.org/wiki/Brainfuck
 - https://github.com/lestrozi/pipevm/
 - https://esolangs.org/wiki/Mastermind
+
+# todos
+
+- [ ] make a graphics
+- [ ] connect stdin
+- [ ] try podman
+- [ ] try minikube
+- [ ] try colima
