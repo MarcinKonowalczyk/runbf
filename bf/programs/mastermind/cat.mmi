@@ -1,0 +1,14 @@
+#include "print.mmi"
+
+let loop = true;
+let var = 0;
+output "input char: ";
+while loop {
+  input var;
+  if var - 10 {
+    output "your character is: ";
+    print<var>;
+    output "\n";
+    output "input char: ";
+  }
+}

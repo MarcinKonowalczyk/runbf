@@ -1,0 +1,45 @@
+#include "print.mmi"
+
+def ok<v> {
+  output "\n";
+  output "your character is: ";
+  if not var - 10 {
+    output "\\n";
+  } else {
+    output v;
+  }
+  output "(";
+  print<v>;
+  output ")";
+}
+
+let loop = true;
+let var = 0;
+let skip_prompt = false;
+while loop {
+  if not skip_prompt {
+    output "input a character";
+  } else {
+    skip_prompt = false;
+  }
+  input var;
+  if not var - 10 { // newline
+    skip_prompt = true;
+  } else {
+    if not var - 4 { // ctrl+d
+      output "ctrl+d";
+      loop = false;
+    } else {
+      if not var - 3 { // ctrl+c
+        output "ctrl+c";
+        loop = false;
+      } else {
+        ok<var>;
+      }
+    }
+  }
+  if not skip_prompt {
+    output 10; // nl
+  }
+  // output 13; // cr
+}
