@@ -80,7 +80,7 @@ tail -f ~/Library/Containers/com.docker.docker/Data/log/vm/containerd.log
 # todos
 
 - [ ] make a graphics
-- [ ] connect stdin
+- [x] connect stdin
 - [ ] try podman
 - [ ] try minikube
 - [ ] try colima
