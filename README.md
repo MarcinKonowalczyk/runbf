@@ -69,6 +69,7 @@ tail -f ~/Library/Containers/com.docker.docker/Data/log/vm/containerd.log
 - https://docs.docker.com/reference/cli/docker/container/run/
 - https://github.com/antoineco/containerd-shim-sample
 - https://docs.docker.com/engine/daemon/logs/
+- https://labs.iximiuz.com/tutorials/pitfalls-of-from-scratch-images
 
 ## bf
 
